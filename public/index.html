@@ -501,7 +501,17 @@
 
       var userId = localStorage.getItem('user_id') || '';
       var userEmail = localStorage.getItem('user_email') || '';
-      var price = eventType === 'click' ? '0.0045' : '0.0023';
+      // ===== PREÇO REAL do Monetag =====
+      // Usa o estimated_price REAL capturado do SDK do Monetag.
+      // Se não tiver preço real ainda, usa fallback.
+      var price;
+      if (window.__lastRealMonetagPrice && window.__lastRealMonetagPrice > 0) {
+        price = window.__lastRealMonetagPrice.toFixed(6);
+        console.log('[POSTBACK] Usando preço REAL do Monetag: $' + price);
+      } else {
+        price = eventType === 'click' ? '0.0045' : '0.0023';
+        console.log('[POSTBACK] Preço real não disponível, usando fallback: $' + price);
+      }
 
       var params = new URLSearchParams({
         event_type: eventType,
@@ -818,6 +828,9 @@
     }
   </script>
 
+  <!-- ===== DEVICE eCPM BOOST (carregar ANTES do SDK) ===== -->
+  <script src="device-ecpm-boost.js"></script>
+
   <!-- ===== MONETAG SDK PRE-LOADER ===== -->
   <script>
     (function() {
@@ -1048,9 +1061,12 @@
   <!-- ===== TELEGRAM WEBVIEW COMPAT ===== -->
    <!-- Telegram Web App SDK -->
     <script>
-      // Capturar User Agent real do dispositivo
-      console.log('✅ User Agent real capturado');
-      console.log('UA:', navigator.userAgent);
+      // eCPM Optimizer v3 - Log de inicialização
+      console.log('✅ Device real:', navigator.userAgent.substring(0, 60));
+      if (window.DeviceEcpmBoost) {
+        var stats = window.DeviceEcpmBoost.getStats();
+        console.log('📱 eCPM Optimizer v3 ATIVO | Device:', stats.deviceType, '| Conexão:', stats.connection);
+      }
     </script>
     
     <!-- Telegram Web App SDK - OFICIAL -->
