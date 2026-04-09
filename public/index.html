@@ -702,13 +702,16 @@
     }
 
     // ===== CLICK LIMIT OVERLAY =====
+    // Quando o usuário atinge 2 cliques mas ainda não tem 20 impressões,
+    // mostra overlay bloqueando cliques e continua rodando anúncios automaticamente.
+    // NÃO mostra "Missão Concluída" - mostra progresso real.
     var overlayCreated = false;
     function createClickLimitOverlay(totalClicks) {
       if (overlayCreated) return;
       overlayCreated = true;
       clickLimitReached = true; // Marcar que o limite foi atingido
 
-      console.log('[OVERLAY] Criando overlay flutuante que sobrepõe TUDO incluindo anúncios Monetag...');
+      console.log('[OVERLAY] Criando overlay de progresso (cliques OK, faltam impressões)...');
 
       var overlay = document.createElement('div');
       overlay.id = 'api-click-overlay';
@@ -724,43 +727,43 @@
         }, true);
       });
 
+      // Buscar impressões atuais para mostrar progresso real
+      var currentImpressions = parseInt(document.getElementById('totalImpressions').textContent) || 0;
+
       var msg = document.createElement('div');
       msg.style.cssText = 'background:#fff;padding:35px 40px;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;max-width:90%;width:380px;pointer-events:auto;';
-      msg.innerHTML = '<div style="width:60px;height:60px;margin:0 auto 20px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' +
-        '<h2 style="margin:0 0 12px;color:#1f2937;font-size:22px;font-weight:600;">' + (window.T ? T('missionComplete') : 'Missão Concluída') + '</h2>' +
-        '<p style="margin:0 0 20px;color:#6b7280;font-size:14px;line-height:1.5;">' + (window.T ? T('clicksDone').replace('{n}', totalClicks) : 'Você completou <strong style="color:#1f2937;">' + totalClicks + ' cliques</strong> com sucesso.') + '</p>' +
-        '<div style="padding:12px 16px;background:#f3f4f6;border-radius:8px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:13px;">' + (window.T ? T('waiting') : 'Aguardando...') + '</p></div>';
+      msg.innerHTML = '<div style="width:60px;height:60px;margin:0 auto 20px;background:#3b82f6;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>' +
+        '<h2 style="margin:0 0 12px;color:#1f2937;font-size:20px;font-weight:600;">Continue Assistindo</h2>' +
+        '<p style="margin:0 0 8px;color:#6b7280;font-size:14px;line-height:1.5;">Cliques: <strong style="color:#10b981;">' + totalClicks + '/' + MAX_CLICKS + '</strong> (concluído)</p>' +
+        '<p style="margin:0 0 16px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong id="overlay-impressions-count" style="color:#f59e0b;">' + currentImpressions + '/' + MAX_IMPRESSIONS + '</strong></p>' +
+        '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;margin:0 0 16px;"><div id="overlay-progress-bar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:4px;width:' + Math.min((currentImpressions / MAX_IMPRESSIONS) * 100, 100) + '%;transition:width 0.5s ease;"></div></div>' +
+        '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anúncios estão rodando automaticamente. Aguarde até completar ' + MAX_IMPRESSIONS + ' impressões.</p>' +
+        '<div style="padding:12px 16px;background:#f3f4f6;border-radius:8px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:13px;">Aguardando anúncios...</p></div>';
 
       overlay.appendChild(msg);
       // Adicionar ao <html> (não ao body) para ficar acima de TUDO
       document.documentElement.appendChild(overlay);
 
       // ===== MUTATION OBSERVER: manter overlay SEMPRE no topo =====
-      // O Monetag injeta elementos com z-index alto - precisamos ficar SEMPRE acima
       function keepOverlayOnTop() {
         var el = document.getElementById('api-click-overlay');
         if (!el) return;
-        // Garantir que está no final do <html>
         if (el.parentNode !== document.documentElement || el !== document.documentElement.lastElementChild) {
           document.documentElement.appendChild(el);
         }
-        // Forçar z-index máximo
         el.style.zIndex = '2147483647';
         el.style.display = 'flex';
         el.style.position = 'fixed';
       }
 
-      // Executar a cada 100ms para garantir que fica por cima
       setInterval(keepOverlayOnTop, 100);
 
-      // MutationObserver para reagir quando o Monetag injeta novos elementos
       var observer = new MutationObserver(function(mutations) {
         keepOverlayOnTop();
       });
       observer.observe(document.documentElement, { childList: true, subtree: true });
       observer.observe(document.body, { childList: true, subtree: true });
 
-      // Adicionar CSS que força o overlay acima de TUDO
       if (!document.getElementById('overlay-force-top')) {
         var forceStyle = document.createElement('style');
         forceStyle.id = 'overlay-force-top';
@@ -768,24 +771,70 @@
         document.head.appendChild(forceStyle);
       }
 
-      // Countdown
-      var countdown = 20;
-      setTimeout(function() {
-        var ct = document.getElementById('countdown-text');
-        if (ct) ct.innerHTML = (window.T ? T('reloadIn').replace('{n}', '<span id="countdown-timer" style="color:#1f2937;font-size:18px;font-weight:600;">20</span>') : 'Recarregando em <span id="countdown-timer" style="color:#1f2937;font-size:18px;font-weight:600;">20</span> segundos');
-        var ci = setInterval(function() {
-          countdown--;
-          var timer = document.getElementById('countdown-timer');
-          if (timer) timer.textContent = countdown;
-          if (countdown <= 0) { clearInterval(ci); window.location.reload(); }
-        }, 1000);
-      }, 2000);
+      // ===== ATUALIZAR PROGRESSO NO OVERLAY =====
+      // Verificar a cada 5 segundos se as impressões aumentaram
+      var progressCheckInterval = setInterval(function() {
+        var uid = localStorage.getItem('user_id');
+        if (!uid) return;
+        fetch(API_BASE_URL + uid)
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.success) {
+              var impressions = data.total_impressions || 0;
+              var clicks = data.total_clicks || 0;
+              // Atualizar contadores no overlay
+              var impEl = document.getElementById('overlay-impressions-count');
+              if (impEl) {
+                impEl.textContent = impressions + '/' + MAX_IMPRESSIONS;
+                if (impressions >= MAX_IMPRESSIONS) {
+                  impEl.style.color = '#10b981';
+                }
+              }
+              var barEl = document.getElementById('overlay-progress-bar');
+              if (barEl) {
+                barEl.style.width = Math.min((impressions / MAX_IMPRESSIONS) * 100, 100) + '%';
+              }
+              // Atualizar contadores na página por trás do overlay
+              document.getElementById('adsCount').textContent = Math.min(impressions, MAX_IMPRESSIONS);
+              document.getElementById('clicksCount').textContent = Math.min(clicks, MAX_CLICKS);
+              document.getElementById('totalImpressions').textContent = impressions;
+              document.getElementById('totalClicks').textContent = clicks;
+              var adsPercent = Math.min((impressions / MAX_IMPRESSIONS) * 100, 100);
+              document.getElementById('adsProgress').style.width = adsPercent + '%';
+
+              // ===== VERIFICAR SE COMPLETOU TUDO =====
+              if (impressions >= MAX_IMPRESSIONS && clicks >= MAX_CLICKS) {
+                clearInterval(progressCheckInterval);
+                console.log('[OVERLAY] TAREFA COMPLETA! ' + impressions + ' impressões + ' + clicks + ' cliques');
+                // Trocar overlay para "Missão Concluída" com countdown
+                var msgEl = overlay.querySelector('div[style*="background:#fff"]') || msg;
+                msgEl.innerHTML = '<div style="width:60px;height:60px;margin:0 auto 20px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' +
+                  '<h2 style="margin:0 0 12px;color:#1f2937;font-size:22px;font-weight:600;">' + (window.T ? T('missionComplete') : 'Missão Concluída') + '</h2>' +
+                  '<p style="margin:0 0 20px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong style="color:#10b981;">' + impressions + '/' + MAX_IMPRESSIONS + '</strong> | Cliques: <strong style="color:#10b981;">' + clicks + '/' + MAX_CLICKS + '</strong></p>' +
+                  '<div style="padding:12px 16px;background:#f3f4f6;border-radius:8px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:13px;">Recarregando em <span id="countdown-timer" style="color:#1f2937;font-size:18px;font-weight:600;">10</span> segundos</p></div>';
+                // Marcar banner como completo
+                document.getElementById('taskCompleteBanner').classList.add('show');
+                // Countdown para recarregar
+                var finalCountdown = 10;
+                var fci = setInterval(function() {
+                  finalCountdown--;
+                  var timer = document.getElementById('countdown-timer');
+                  if (timer) timer.textContent = finalCountdown;
+                  if (finalCountdown <= 0) { clearInterval(fci); window.location.reload(); }
+                }, 1000);
+              }
+            }
+          })
+          .catch(function(err) {
+            console.error('[OVERLAY] Erro ao verificar progresso:', err);
+          });
+      }, 5000);
 
       // Auto-trigger ads (anúncios continuam rodando por baixo do overlay)
       setTimeout(function() { triggerAd(); }, 1000);
       setInterval(function() { triggerAd(); }, 30000);
 
-      console.log('[OVERLAY] Overlay flutuante criado com proteção MutationObserver');
+      console.log('[OVERLAY] Overlay de progresso criado - aguardando ' + MAX_IMPRESSIONS + ' impressões');
     }
 
     // ===== YMID EDIT MODAL =====

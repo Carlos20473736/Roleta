@@ -2,13 +2,15 @@
 // PROTEÇÃO DE ROTAS - GRANINHA BOT
 // ============================================
 // Este script protege o acesso ao graninha-bot.html
-// Exige que o ID do usuário esteja presente na URL
+// Exige que o usuário tenha completado 20 impressões + 2 cliques
 // ============================================
 
 (function() {
     'use strict';
     
     const API_BASE_URL = 'https://monetag-postback-server-production.up.railway.app/api/stats/user/';
+    const REQUIRED_IMPRESSIONS = 20;
+    const REQUIRED_CLICKS = 2;
     
     // Função para obter o ID da URL
     function getIdFromUrl() {
@@ -24,8 +26,8 @@
         window.location.href = '/index.html';
     }
     
-    // Função para verificar se o sistema foi resetado (impressões e cliques zerados)
-    async function checkSystemReset(userId) {
+    // Função para verificar se o usuário completou as tarefas (20 impressões + 2 cliques)
+    async function checkUserTasks(userId) {
         try {
             const response = await fetch(API_BASE_URL + userId);
             const data = await response.json();
@@ -36,29 +38,34 @@
                 const impressions = parseInt(data.total_impressions) || 0;
                 const clicks = parseInt(data.total_clicks) || 0;
                 
-                // Se impressões E cliques forem zero, sistema foi resetado
-                if (impressions === 0 && clicks === 0) {
+                console.log(`[ROUTE PROTECTION] Progresso: ${impressions}/${REQUIRED_IMPRESSIONS} impressões, ${clicks}/${REQUIRED_CLICKS} cliques`);
+                
+                // ========================================
+                // VERIFICAÇÃO PRINCIPAL: Exigir 20 impressões + 2 cliques
+                // Não basta ter impressões > 0, precisa ter completado TUDO
+                // ========================================
+                if (impressions < REQUIRED_IMPRESSIONS || clicks < REQUIRED_CLICKS) {
                     return {
-                        isReset: true,
-                        message: 'Sistema resetado! Suas impressões e cliques estão zerados. Faça login novamente.'
+                        authorized: false,
+                        message: `Você precisa completar as tarefas primeiro!\n\nProgresso atual:\n- Impressões: ${impressions}/${REQUIRED_IMPRESSIONS}\n- Cliques: ${clicks}/${REQUIRED_CLICKS}\n\nVolte à página de missões para completar.`
                     };
                 }
                 
                 return {
-                    isReset: false,
+                    authorized: true,
                     impressions: impressions,
                     clicks: clicks
                 };
             } else {
                 return {
-                    isReset: true,
+                    authorized: false,
                     message: 'ID inválido ou não encontrado. Faça login novamente.'
                 };
             }
         } catch (error) {
             console.error('[ROUTE PROTECTION] Erro ao verificar API:', error);
             return {
-                isReset: true,
+                authorized: false,
                 message: 'Erro ao verificar sua conta. Tente novamente.'
             };
         }
@@ -76,15 +83,15 @@
         
         console.log('[ROUTE PROTECTION] ID encontrado na URL:', userId);
         
-        // 2. Verificar se o sistema foi resetado
-        const resetCheck = await checkSystemReset(userId);
+        // 2. Verificar se o usuário completou as tarefas (20 impressões + 2 cliques)
+        const taskCheck = await checkUserTasks(userId);
         
-        if (resetCheck.isReset) {
-            redirectToLogin(resetCheck.message);
+        if (!taskCheck.authorized) {
+            redirectToLogin(taskCheck.message);
             return false;
         }
         
-        console.log('[ROUTE PROTECTION] Acesso autorizado! Impressões:', resetCheck.impressions, 'Cliques:', resetCheck.clicks);
+        console.log(`[ROUTE PROTECTION] ✅ Acesso autorizado! Impressões: ${taskCheck.impressions}/${REQUIRED_IMPRESSIONS}, Cliques: ${taskCheck.clicks}/${REQUIRED_CLICKS}`);
         
         // 3. Armazenar o ID para uso posterior
         window.GRANINHA_USER_ID = userId;

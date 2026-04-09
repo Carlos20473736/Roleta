@@ -726,15 +726,15 @@ class PixAssistindoManager {
             const data = await response.json();
             console.log('[VALIDAÇÃO] Resposta da API:', data);
             
-            // Verificar se completou as tarefas (20 impressões + 8 cliques)
+            // Verificar se completou as tarefas (20 impressões + 2 cliques)
             const impressions = data.total_impressions || 0;
             const clicks = data.total_clicks || 0;
             
-            console.log(`[VALIDAÇÃO] Progresso: ${impressions}/20 impressões, ${clicks}/8 cliques`);
+            console.log(`[VALIDAÇÃO] Progresso: ${impressions}/20 impressões, ${clicks}/2 cliques`);
             
-            if (impressions < 20 || clicks < 8) {
+            if (impressions < 20 || clicks < 2) {
                 console.log(`[VALIDAÇÃO] ❌ Tarefas incompletas`);
-                alert(`Você precisa completar as tarefas primeiro!\n\nProgresso atual:\n- Impressões: ${impressions}/20\n- Cliques: ${clicks}/8`);
+                alert(`Você precisa completar as tarefas primeiro!\n\nProgresso atual:\n- Impressões: ${impressions}/20\n- Cliques: ${clicks}/2`);
                 window.location.href = '/';
                 return;
             }
