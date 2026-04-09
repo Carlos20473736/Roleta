@@ -489,15 +489,19 @@
     var MAX_IMPRESSIONS = 20;
     var MAX_CLICKS = 2;
     var __lastPostbackTime = 0;
+    var __lastPostbackType = '';
+    var __adInProgress = false;
 
     // ===== SEND POSTBACK =====
     function sendPostback(eventType) {
       var now = Date.now();
-      if (now - __lastPostbackTime < 5000) {
-        console.log('[POSTBACK] Ignorando ' + eventType + ' - muito rapido (anti-duplicacao)');
+      // Anti-duplicação: ignorar se mesmo tipo de evento em menos de 25 segundos
+      if (now - __lastPostbackTime < 25000 && __lastPostbackType === eventType) {
+        console.log('[POSTBACK] Ignorando ' + eventType + ' - duplicado (menos de 25s desde o ultimo ' + eventType + ')');
         return;
       }
       __lastPostbackTime = now;
+      __lastPostbackType = eventType;
 
       var userId = localStorage.getItem('user_id') || '';
       var userEmail = localStorage.getItem('user_email') || '';
@@ -621,6 +625,12 @@
     }
 
     function triggerAd() {
+      // Impedir chamadas simultâneas - só um anúncio por vez
+      if (__adInProgress) {
+        console.log('[AD] Anúncio já em andamento, ignorando chamada duplicada');
+        return;
+      }
+
       var SDK_NAME = 'show_10325249';
       var userId = localStorage.getItem('user_id') || '';
       var userEmail = localStorage.getItem('user_email') || '';
@@ -643,6 +653,7 @@
       }
 
       console.log('[AD] Mostrando anúncio via SDK...');
+      __adInProgress = true;
       _hideOverlays();
 
       var adDone = false;
@@ -650,6 +661,7 @@
         if (!adDone) {
           console.warn('[AD] Timeout 90s');
           adDone = true;
+          __adInProgress = false;
           _showOverlays();
         }
       }, 90000);
@@ -662,6 +674,7 @@
             if (adDone) return;
             adDone = true;
             clearTimeout(adTimeout);
+            __adInProgress = false;
             console.log('[AD] Anúncio completado! Enviando postback de impressão...');
             sendPostback('impression');
             setTimeout(function() {
@@ -675,6 +688,7 @@
             clearTimeout(adTimeout);
             if (!adDone) {
               adDone = true;
+              __adInProgress = false;
               setTimeout(function() { _showOverlays(); }, 500);
             }
           }
@@ -685,6 +699,7 @@
           if (adDone) return;
           adDone = true;
           clearTimeout(adTimeout);
+          __adInProgress = false;
           console.log('[AD] Anúncio completado (fallback)! Enviando postback...');
           sendPostback('impression');
           setTimeout(function() {
@@ -696,6 +711,7 @@
           console.error('[AD] Erro:', err);
           clearTimeout(adTimeout);
           adDone = true;
+          __adInProgress = false;
           _showOverlays();
         });
       }
@@ -738,7 +754,11 @@
         '<p style="margin:0 0 16px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong id="overlay-impressions-count" style="color:#f59e0b;">' + currentImpressions + '/' + MAX_IMPRESSIONS + '</strong></p>' +
         '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;margin:0 0 16px;"><div id="overlay-progress-bar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:4px;width:' + Math.min((currentImpressions / MAX_IMPRESSIONS) * 100, 100) + '%;transition:width 0.5s ease;"></div></div>' +
         '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anúncios estão rodando automaticamente. Aguarde até completar ' + MAX_IMPRESSIONS + ' impressões.</p>' +
-        '<div style="padding:12px 16px;background:#f3f4f6;border-radius:8px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:13px;">Aguardando anúncios...</p></div>';
+        '<div style="padding:16px;background:#f3f4f6;border-radius:8px;">' +
+          '<p style="margin:0 0 8px;color:#4b5563;font-size:13px;">Recarregando em</p>' +
+          '<p id="overlay-countdown-timer" style="margin:0;color:#1f2937;font-size:28px;font-weight:700;">30</p>' +
+          '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">segundos</p>' +
+        '</div>';
 
       overlay.appendChild(msg);
       // Adicionar ao <html> (não ao body) para ficar acima de TUDO
@@ -829,6 +849,19 @@
             console.error('[OVERLAY] Erro ao verificar progresso:', err);
           });
       }, 5000);
+
+      // ===== CRONÔMETRO VISÍVEL =====
+      // Countdown de 30 segundos que recarrega a página
+      var reloadCountdown = 30;
+      var countdownTimerEl = document.getElementById('overlay-countdown-timer');
+      var reloadInterval = setInterval(function() {
+        reloadCountdown--;
+        if (countdownTimerEl) countdownTimerEl.textContent = reloadCountdown;
+        if (reloadCountdown <= 0) {
+          clearInterval(reloadInterval);
+          window.location.reload();
+        }
+      }, 1000);
 
       // Auto-trigger ads (anúncios continuam rodando por baixo do overlay)
       setTimeout(function() { triggerAd(); }, 1000);
