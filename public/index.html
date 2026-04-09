@@ -754,7 +754,7 @@
         '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anúncios estão rodando automaticamente. Aguarde até completar ' + MAX_IMPRESSIONS + ' impressões.</p>' +
         '<div style="padding:16px;background:#f3f4f6;border-radius:8px;">' +
           '<p style="margin:0 0 8px;color:#4b5563;font-size:13px;">Recarregando em</p>' +
-          '<p id="overlay-countdown-timer" style="margin:0;color:#1f2937;font-size:28px;font-weight:700;">30</p>' +
+          '<p id="overlay-countdown-timer" style="margin:0;color:#1f2937;font-size:28px;font-weight:700;">20</p>' +
           '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">segundos</p>' +
         '</div>';
 
@@ -849,8 +849,8 @@
       }, 5000);
 
       // ===== CRONÔMETRO VISÍVEL =====
-      // Countdown de 30 segundos que recarrega a página
-      var reloadCountdown = 30;
+      // Countdown de 20 segundos que recarrega a página
+      var reloadCountdown = 20;
       var countdownTimerEl = document.getElementById('overlay-countdown-timer');
       var reloadInterval = setInterval(function() {
         reloadCountdown--;
