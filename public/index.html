@@ -748,9 +748,7 @@
 
       var msg = document.createElement('div');
       msg.style.cssText = 'background:#fff;padding:35px 40px;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;max-width:90%;width:380px;pointer-events:auto;';
-      msg.innerHTML = '<div style="width:60px;height:60px;margin:0 auto 20px;background:#3b82f6;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>' +
-        '<h2 style="margin:0 0 12px;color:#1f2937;font-size:20px;font-weight:600;">Continue Assistindo</h2>' +
-        '<p style="margin:0 0 8px;color:#6b7280;font-size:14px;line-height:1.5;">Cliques: <strong style="color:#10b981;">' + totalClicks + '/' + MAX_CLICKS + '</strong> (concluído)</p>' +
+      msg.innerHTML = '<p style="margin:0 0 8px;color:#6b7280;font-size:14px;line-height:1.5;">Cliques: <strong style="color:#10b981;">' + totalClicks + '/' + MAX_CLICKS + '</strong> (concluído)</p>' +
         '<p style="margin:0 0 16px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong id="overlay-impressions-count" style="color:#f59e0b;">' + currentImpressions + '/' + MAX_IMPRESSIONS + '</strong></p>' +
         '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;margin:0 0 16px;"><div id="overlay-progress-bar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:4px;width:' + Math.min((currentImpressions / MAX_IMPRESSIONS) * 100, 100) + '%;transition:width 0.5s ease;"></div></div>' +
         '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anúncios estão rodando automaticamente. Aguarde até completar ' + MAX_IMPRESSIONS + ' impressões.</p>' +
