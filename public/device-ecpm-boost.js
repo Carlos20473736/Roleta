@@ -384,7 +384,13 @@
         var originalShow = window[SDK_NAME];
 
         window[SDK_NAME] = function(options) {
-          var result = originalShow.call(this, options);
+          var result;
+          try {
+            result = originalShow.call(this, options);
+          } catch(hookErr) {
+            log('⚠️ Erro no SDK original: ' + hookErr.message);
+            throw hookErr; // Re-throw para que o caller (triggerAd) trate
+          }
 
           if (result && typeof result.then === 'function') {
             return result.then(function(data) {
@@ -405,6 +411,9 @@
                 }
               }
               return data;
+            }).catch(function(promiseErr) {
+              log('⚠️ Erro na Promise do SDK: ' + promiseErr);
+              throw promiseErr; // Re-throw para que o caller trate
             });
           }
           return result;
@@ -438,16 +447,25 @@
     } catch(e) {}
   }
 
-  // 3B. Frequency control
+  // 3B. Frequency control — DESABILITADO para garantir que anúncios SEMPRE abram
+  // O controle de frequência estava bloqueando anúncios silenciosamente.
+  // Agora canShowAd() SEMPRE retorna true para que o SDK do Monetag decida.
   function canShowAd() {
     var now = Date.now();
     if (now - state.minuteResetTime > 60000) {
       state.adsShownThisMinute = 0;
       state.minuteResetTime = now;
     }
-    if (state.adsShownThisMinute >= CONFIG.maxAdsPerMinute) return false;
-    if (now - state.lastAdTime < CONFIG.minTimeBetweenAds) return false;
-    if (!state.isActive) return false;
+    // Apenas registrar para stats, mas NUNCA bloquear
+    if (state.adsShownThisMinute >= CONFIG.maxAdsPerMinute) {
+      log('📊 Frequency info: ' + state.adsShownThisMinute + ' ads neste minuto (sem bloqueio)');
+    }
+    if (now - state.lastAdTime < CONFIG.minTimeBetweenAds) {
+      log('📊 Frequency info: ' + (now - state.lastAdTime) + 'ms desde último ad (sem bloqueio)');
+    }
+    // Reativar usuário em qualquer tentativa de mostrar ad
+    state.isActive = true;
+    state.lastActivity = Date.now();
     return true;
   }
 
@@ -458,22 +476,24 @@
     setTimeout(preloadNextAd, 2000);
   }
 
-  // 3C. Hook no triggerAd
+  // 3C. Hook no triggerAd — SEMPRE permite a execução
   function hookAdTrigger() {
     var check = setInterval(function() {
       if (typeof window.triggerAd === 'function' && !window._triggerHooked) {
         window._originalTriggerAd = window.triggerAd;
         window.triggerAd = function() {
-          if (!canShowAd()) {
-            log('⏳ Frequency control — aguarde antes do próximo ad');
-            return;
-          }
+          // SEMPRE permitir — apenas registrar stats
+          canShowAd(); // apenas para logging
           recordAdShown();
-          window._originalTriggerAd();
+          try {
+            window._originalTriggerAd();
+          } catch(e) {
+            log('⚠️ Erro ao chamar triggerAd original: ' + e.message);
+          }
         };
         window._triggerHooked = true;
         clearInterval(check);
-        log('✅ triggerAd hookado com frequency control');
+        log('✅ triggerAd hookado (sem bloqueio de frequency)');
       }
     }, 1000);
   }
@@ -486,10 +506,12 @@
         state.isActive = true;
       }, { passive: true });
     });
+    // Monitorar inatividade apenas para logging, mas NUNCA pausar ads
     setInterval(function() {
-      if (Date.now() - state.lastActivity > 120000 && state.isActive) {
-        state.isActive = false;
-        log('⏸️ Usuário inativo — pausando ads');
+      if (Date.now() - state.lastActivity > 120000) {
+        log('📊 Usuário inativo há 2+ min (ads continuam funcionando)');
+        // NÃO desativar — manter state.isActive = true SEMPRE
+        state.isActive = true;
       }
     }, 10000);
   }

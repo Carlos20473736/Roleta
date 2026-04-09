@@ -624,11 +624,32 @@
       if (o2) { o2.style.display = 'block'; o2.dataset.adActive = 'false'; }
     }
 
+    // ===== SAFETY RESET: evitar que __adInProgress fique preso =====
+    // Se __adInProgress ficar true por mais de 30s, resetar automaticamente
+    setInterval(function() {
+      if (__adInProgress && __adStartTime && (Date.now() - __adStartTime > 30000)) {
+        console.warn('[AD] Safety reset: __adInProgress estava preso há 30s+, resetando...');
+        __adInProgress = false;
+        __adStartTime = 0;
+        _showOverlays();
+      }
+    }, 5000);
+    var __adStartTime = 0;
+    var __adRetryCount = 0;
+    var __maxAdRetries = 3;
+
     function triggerAd() {
       // Impedir chamadas simultâneas - só um anúncio por vez
+      // Mas com safety: se já passou 30s, forçar reset
       if (__adInProgress) {
-        console.log('[AD] Anúncio já em andamento, ignorando chamada duplicada');
-        return;
+        if (__adStartTime && (Date.now() - __adStartTime > 30000)) {
+          console.warn('[AD] Forçando reset de __adInProgress (preso há 30s+)');
+          __adInProgress = false;
+          __adStartTime = 0;
+        } else {
+          console.log('[AD] Anúncio já em andamento, ignorando chamada duplicada');
+          return;
+        }
       }
 
       var SDK_NAME = 'show_10325249';
@@ -637,16 +658,19 @@
 
       if (!window[SDK_NAME]) {
         console.warn('[AD] SDK não carregado ainda. Aguarde...');
-        // Tentar carregar e esperar
+        // Tentar carregar e esperar com mais tentativas
         var waitCount = 0;
         var waitInterval = setInterval(function() {
           waitCount++;
           if (window[SDK_NAME]) {
             clearInterval(waitInterval);
+            console.log('[AD] SDK carregou após ' + waitCount + ' tentativas');
             triggerAd();
-          } else if (waitCount > 20) {
+          } else if (waitCount > 40) {
             clearInterval(waitInterval);
-            console.error('[AD] SDK não carregou após espera');
+            console.error('[AD] SDK não carregou após 20s de espera. Recarregando SDK...');
+            // Forçar recarregamento do SDK
+            _forceReloadSDK();
           }
         }, 500);
         return;
@@ -654,67 +678,128 @@
 
       console.log('[AD] Mostrando anúncio via SDK...');
       __adInProgress = true;
+      __adStartTime = Date.now();
+      __adRetryCount = 0;
       _hideOverlays();
 
       var adDone = false;
+      // Timeout reduzido para 30s (era 90s) — se não completar, retry
       var adTimeout = setTimeout(function() {
         if (!adDone) {
-          console.warn('[AD] Timeout 90s');
+          console.warn('[AD] Timeout 30s — tentando novamente...');
           adDone = true;
           __adInProgress = false;
+          __adStartTime = 0;
           _showOverlays();
+          // Auto-retry após timeout
+          if (__adRetryCount < __maxAdRetries) {
+            __adRetryCount++;
+            console.log('[AD] Retry automático #' + __adRetryCount);
+            setTimeout(function() { triggerAd(); }, 2000);
+          }
         }
-      }, 90000);
+      }, 30000);
+
+      function _adSuccess() {
+        if (adDone) return;
+        adDone = true;
+        clearTimeout(adTimeout);
+        __adInProgress = false;
+        __adStartTime = 0;
+        __adRetryCount = 0;
+        console.log('[AD] Anúncio completado! Enviando postback de impressão...');
+        sendPostback('impression');
+        setTimeout(function() {
+          _showOverlays();
+          var uid = localStorage.getItem('user_id');
+          if (uid) fetchStats(uid);
+        }, 2000);
+      }
+
+      function _adClosed() {
+        console.log('[AD] Anúncio fechado pelo usuário.');
+        clearTimeout(adTimeout);
+        if (!adDone) {
+          adDone = true;
+          __adInProgress = false;
+          __adStartTime = 0;
+          setTimeout(function() { _showOverlays(); }, 500);
+        }
+      }
+
+      function _adError(err) {
+        console.error('[AD] Erro:', err);
+        clearTimeout(adTimeout);
+        adDone = true;
+        __adInProgress = false;
+        __adStartTime = 0;
+        _showOverlays();
+        // Auto-retry após erro
+        if (__adRetryCount < __maxAdRetries) {
+          __adRetryCount++;
+          console.log('[AD] Retry automático após erro #' + __adRetryCount);
+          setTimeout(function() { triggerAd(); }, 3000);
+        }
+      }
 
       try {
-        window[SDK_NAME]({
+        var result = window[SDK_NAME]({
           ymid: userId,
           requestVar: userEmail,
-          onComplete: function() {
-            if (adDone) return;
-            adDone = true;
-            clearTimeout(adTimeout);
-            __adInProgress = false;
-            console.log('[AD] Anúncio completado! Enviando postback de impressão...');
-            sendPostback('impression');
-            setTimeout(function() {
-              _showOverlays();
-              var uid = localStorage.getItem('user_id');
-              if (uid) fetchStats(uid);
-            }, 2000);
-          },
-          onClose: function() {
-            console.log('[AD] Anúncio fechado pelo usuário.');
-            clearTimeout(adTimeout);
-            if (!adDone) {
-              adDone = true;
-              __adInProgress = false;
-              setTimeout(function() { _showOverlays(); }, 500);
-            }
-          }
+          onComplete: _adSuccess,
+          onClose: _adClosed
         });
+        // Se o SDK retornar uma Promise, tratar também
+        if (result && typeof result.then === 'function') {
+          result.then(function() {
+            _adSuccess();
+          }).catch(function(err) {
+            _adError(err);
+          });
+        }
       } catch(e) {
-        console.log('[AD] Tentando formato alternativo...');
-        window[SDK_NAME]().then(function() {
-          if (adDone) return;
-          adDone = true;
-          clearTimeout(adTimeout);
-          __adInProgress = false;
-          console.log('[AD] Anúncio completado (fallback)! Enviando postback...');
-          sendPostback('impression');
-          setTimeout(function() {
-            _showOverlays();
-            var uid = localStorage.getItem('user_id');
-            if (uid) fetchStats(uid);
-          }, 2000);
-        }).catch(function(err) {
-          console.error('[AD] Erro:', err);
-          clearTimeout(adTimeout);
-          adDone = true;
-          __adInProgress = false;
-          _showOverlays();
-        });
+        console.log('[AD] Tentando formato alternativo (Promise)...');
+        try {
+          window[SDK_NAME]().then(function() {
+            _adSuccess();
+          }).catch(function(err) {
+            _adError(err);
+          });
+        } catch(e2) {
+          _adError(e2);
+        }
       }
+    }
+
+    // ===== FORCE RELOAD SDK =====
+    function _forceReloadSDK() {
+      console.log('[AD] Forçando recarregamento do SDK Monetag...');
+      var ZONE_ID = '10325249';
+      var SDK_URL = 'https://libtl.com/sdk.js';
+      // Remover scripts antigos
+      document.querySelectorAll('script[src="' + SDK_URL + '"]').forEach(function(s) { s.remove(); });
+      // Criar novo script
+      var script = document.createElement('script');
+      script.src = SDK_URL;
+      script.setAttribute('data-zone', ZONE_ID);
+      script.setAttribute('data-sdk', 'show_' + ZONE_ID);
+      script.async = true;
+      script.onload = function() {
+        var c = 0;
+        var iv = setInterval(function() {
+          c++;
+          if (window['show_' + ZONE_ID]) {
+            clearInterval(iv);
+            console.log('[AD] SDK recarregado com sucesso!');
+            // Tentar abrir o anúncio novamente
+            setTimeout(function() { triggerAd(); }, 1000);
+          } else if (c > 30) {
+            clearInterval(iv);
+            console.error('[AD] SDK não inicializou após recarregamento');
+          }
+        }, 500);
+      };
+      document.head.appendChild(script);
     }
 
     // ===== CLICK LIMIT OVERLAY =====
