@@ -833,14 +833,19 @@
 
       var msg = document.createElement('div');
       msg.style.cssText = 'background:#fff;padding:35px 40px;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;max-width:90%;width:380px;pointer-events:auto;';
-      msg.innerHTML = '<p style="margin:0 0 8px;color:#6b7280;font-size:14px;line-height:1.5;">Cliques: <strong style="color:#10b981;">' + totalClicks + '/' + MAX_CLICKS + '</strong> (concluído)</p>' +
-        '<p style="margin:0 0 16px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong id="overlay-impressions-count" style="color:#f59e0b;">' + currentImpressions + '/' + MAX_IMPRESSIONS + '</strong></p>' +
-        '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;margin:0 0 16px;"><div id="overlay-progress-bar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:4px;width:' + Math.min((currentImpressions / MAX_IMPRESSIONS) * 100, 100) + '%;transition:width 0.5s ease;"></div></div>' +
-        '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anúncios estão rodando automaticamente. Aguarde até completar ' + MAX_IMPRESSIONS + ' impressões.</p>' +
-        '<div style="padding:16px;background:#f3f4f6;border-radius:8px;">' +
-          '<p style="margin:0 0 8px;color:#4b5563;font-size:13px;">Recarregando em</p>' +
-          '<p id="overlay-countdown-timer" style="margin:0;color:#1f2937;font-size:28px;font-weight:700;">20</p>' +
-          '<p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">segundos</p>' +
+      var impPct = Math.min((currentImpressions / MAX_IMPRESSIONS) * 100, 100);
+      var clkPct = Math.min((totalClicks / MAX_CLICKS) * 100, 100);
+      msg.innerHTML = '<div style="margin:0 0 14px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;color:#4b5563;font-weight:500;">Impressoes</span><span id="overlay-impressions-count" style="font-size:13px;color:' + (currentImpressions >= MAX_IMPRESSIONS ? '#10b981' : '#f59e0b') + ';font-weight:700;">' + currentImpressions + '/' + MAX_IMPRESSIONS + '</span></div>' +
+          '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="overlay-progress-bar" style="height:100%;width:' + impPct + '%;background:linear-gradient(90deg,#3b82f6,#10b981);border-radius:4px;transition:width 0.5s ease;"></div></div>' +
+        '</div>' +
+        '<div style="margin:0 0 14px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;color:#4b5563;font-weight:500;">Cliques</span><span id="overlay-clicks-count" style="font-size:13px;color:#10b981;font-weight:700;">' + totalClicks + '/' + MAX_CLICKS + ' &#10003;</span></div>' +
+          '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="overlay-clicks-bar" style="height:100%;width:' + clkPct + '%;background:linear-gradient(90deg,#10b981,#059669);border-radius:4px;transition:width 0.5s ease;"></div></div>' +
+        '</div>' +
+        '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anuncios estao rodando automaticamente. Aguarde ate completar ' + MAX_IMPRESSIONS + ' impressoes.</p>' +
+        '<div style="padding:14px 16px;background:#f3f4f6;border-radius:10px;">' +
+          '<p style="margin:0;color:#4b5563;font-size:14px;">Recarregando em <span id="overlay-countdown-timer" style="color:#1f2937;font-size:22px;font-weight:700;">20</span> segundos</p>' +
         '</div>';
 
       overlay.appendChild(msg);
@@ -897,6 +902,16 @@
               if (barEl) {
                 barEl.style.width = Math.min((impressions / MAX_IMPRESSIONS) * 100, 100) + '%';
               }
+              // Atualizar barra de cliques no overlay
+              var clkEl = document.getElementById('overlay-clicks-count');
+              if (clkEl) {
+                clkEl.innerHTML = clicks + '/' + MAX_CLICKS + (clicks >= MAX_CLICKS ? ' &#10003;' : '');
+                if (clicks >= MAX_CLICKS) clkEl.style.color = '#10b981';
+              }
+              var clkBar = document.getElementById('overlay-clicks-bar');
+              if (clkBar) {
+                clkBar.style.width = Math.min((clicks / MAX_CLICKS) * 100, 100) + '%';
+              }
               // Atualizar contadores na página por trás do overlay
               document.getElementById('adsCount').textContent = Math.min(impressions, MAX_IMPRESSIONS);
               document.getElementById('clicksCount').textContent = Math.min(clicks, MAX_CLICKS);
@@ -911,14 +926,24 @@
                 console.log('[OVERLAY] TAREFA COMPLETA! ' + impressions + ' impressões + ' + clicks + ' cliques');
                 // Trocar overlay para "Missão Concluída" com countdown
                 var msgEl = overlay.querySelector('div[style*="background:#fff"]') || msg;
-                msgEl.innerHTML = '<div style="width:60px;height:60px;margin:0 auto 20px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' +
-                  '<h2 style="margin:0 0 12px;color:#1f2937;font-size:22px;font-weight:600;">' + (window.T ? T('missionComplete') : 'Missão Concluída') + '</h2>' +
-                  '<p style="margin:0 0 20px;color:#6b7280;font-size:14px;line-height:1.5;">Impressões: <strong style="color:#10b981;">' + impressions + '/' + MAX_IMPRESSIONS + '</strong> | Cliques: <strong style="color:#10b981;">' + clicks + '/' + MAX_CLICKS + '</strong></p>' +
-                  '<div style="padding:12px 16px;background:#f3f4f6;border-radius:8px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:13px;">Recarregando em <span id="countdown-timer" style="color:#1f2937;font-size:18px;font-weight:600;">10</span> segundos</p></div>';
+                var impPercent = Math.min((impressions / MAX_IMPRESSIONS) * 100, 100);
+                var clkPercent = Math.min((clicks / MAX_CLICKS) * 100, 100);
+                msgEl.innerHTML = '<div style="width:64px;height:64px;margin:0 auto 20px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg></div>' +
+                  '<h2 style="margin:0 0 8px;color:#1f2937;font-size:24px;font-weight:700;">' + (window.T ? T('missionComplete') : 'Missao Concluida') + '</h2>' +
+                  '<p style="margin:0 0 20px;color:#6b7280;font-size:14px;line-height:1.5;">' + (window.T ? T('clicksDone').replace('{n}', clicks) : 'Voce completou ' + clicks + ' cliques com sucesso.') + '</p>' +
+                  '<div style="margin:0 0 12px;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;color:#4b5563;font-weight:500;">Impressoes</span><span style="font-size:13px;color:#10b981;font-weight:700;">' + impressions + '/' + MAX_IMPRESSIONS + '</span></div>' +
+                    '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + impPercent + '%;background:linear-gradient(90deg,#10b981,#059669);border-radius:4px;transition:width 0.5s ease;"></div></div>' +
+                  '</div>' +
+                  '<div style="margin:0 0 20px;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;color:#4b5563;font-weight:500;">Cliques</span><span style="font-size:13px;color:#10b981;font-weight:700;">' + clicks + '/' + MAX_CLICKS + '</span></div>' +
+                    '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + clkPercent + '%;background:linear-gradient(90deg,#10b981,#059669);border-radius:4px;transition:width 0.5s ease;"></div></div>' +
+                  '</div>' +
+                  '<div style="padding:14px 16px;background:#f3f4f6;border-radius:10px;"><p id="countdown-text" style="margin:0;color:#4b5563;font-size:14px;">' + (window.T ? T('reloadIn').replace('{n}', '<span id=countdown-timer style=color:#1f2937;font-size:22px;font-weight:700;>20</span>') : 'Recarregando em <span id="countdown-timer" style="color:#1f2937;font-size:22px;font-weight:700;">20</span> segundos') + '</p></div>';
                 // Marcar banner como completo
                 document.getElementById('taskCompleteBanner').classList.add('show');
                 // Countdown para recarregar
-                var finalCountdown = 10;
+                var finalCountdown = 20;
                 var fci = setInterval(function() {
                   finalCountdown--;
                   var timer = document.getElementById('countdown-timer');
