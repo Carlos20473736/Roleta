@@ -385,6 +385,7 @@
 
         window[SDK_NAME] = function(options) {
           var result;
+          var requestType = options && options.type ? options.type : 'show';
           try {
             result = originalShow.call(this, options);
           } catch(hookErr) {
@@ -412,6 +413,12 @@
               }
               return data;
             }).catch(function(promiseErr) {
+              var errText = String(promiseErr || '');
+              if (requestType === 'preload' && /timeout/i.test(errText)) {
+                state.preloadReady = false;
+                log('ℹ️ Preload do SDK expirou sem anúncio pronto');
+                return null;
+              }
               log('⚠️ Erro na Promise do SDK: ' + promiseErr);
               throw promiseErr; // Re-throw para que o caller trate
             });
@@ -438,9 +445,9 @@
       return;
     }
     try {
-      window[SDK_NAME]({ type: 'preload', timeout: 10 }).then(function() {
-        state.preloadReady = true;
-        log('✅ Próximo ad pré-carregado');
+      window[SDK_NAME]({ type: 'preload', timeout: 3000 }).then(function(data) {
+        state.preloadReady = !!data;
+        if (data) log('✅ Próximo ad pré-carregado');
       }).catch(function() {
         state.preloadReady = false;
       });
@@ -484,9 +491,8 @@
         window.triggerAd = function() {
           // SEMPRE permitir — apenas registrar stats
           canShowAd(); // apenas para logging
-          recordAdShown();
           try {
-            window._originalTriggerAd();
+            return window._originalTriggerAd.apply(this, arguments);
           } catch(e) {
             log('⚠️ Erro ao chamar triggerAd original: ' + e.message);
           }

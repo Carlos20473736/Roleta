@@ -480,7 +480,7 @@
         <span data-i18n="watchAd">ASSISTIR ANÚNCIO</span>
       </button>
 
-      <p class="hint-text" data-i18n="interactHint">Interaja com o anúncio para acumular mais pontos</p>
+      <p class="hint-text" id="adStatusText">Verificando carregamento do anúncio...</p>
     </div>
   </div>
 
@@ -494,6 +494,98 @@
     var __lastPostbackTime = 0;
     var __lastPostbackType = '';
     var __adInProgress = false;
+    var __watchBtnResetTimer = 0;
+    var __lastGestureTriggerTime = 0;
+    var __adStatusWatcherStarted = false;
+    var __originalUA = navigator.userAgent || '';
+    var __legacyAdDeviceInfo = detectLegacyAdDevice(__originalUA);
+
+    function detectLegacyAdDevice(ua) {
+      ua = ua || '';
+      var androidMatch = ua.match(/Android\s([0-9.]+)/i);
+      var chromeMatch = ua.match(/Chrome\/([0-9]+)/i);
+      var androidVersion = androidMatch ? parseFloat(androidMatch[1]) : null;
+      var chromeVersion = chromeMatch ? parseInt(chromeMatch[1], 10) : null;
+      var isSamsungJ4 = /SM-J4|SM-J41|SM-J415/i.test(ua);
+      var isLegacyAndroid = androidVersion && androidVersion <= 9.9;
+      var isLegacyChrome = chromeVersion && chromeVersion < 90;
+      return {
+        ua: ua,
+        androidVersion: androidVersion,
+        chromeVersion: chromeVersion,
+        isSamsungJ4: isSamsungJ4,
+        requiresDirectGesture: !!(isSamsungJ4 || isLegacyAndroid || isLegacyChrome)
+      };
+    }
+
+    function requiresDirectAdGesture() {
+      return !!(__legacyAdDeviceInfo && __legacyAdDeviceInfo.requiresDirectGesture);
+    }
+
+    function updateWatchAdButtonLabel(label, resetDelay) {
+      var btn = document.getElementById('watchAdBtn');
+      if (!btn) return;
+      var span = btn.querySelector('span[data-i18n="watchAd"]') || btn.querySelector('span');
+      if (!span) return;
+      if (!span.dataset.defaultLabel) span.dataset.defaultLabel = span.textContent;
+      span.textContent = label;
+      clearTimeout(__watchBtnResetTimer);
+      if (resetDelay !== false) {
+        __watchBtnResetTimer = setTimeout(function() {
+          span.textContent = span.dataset.defaultLabel || 'ASSISTIR ANÚNCIO';
+        }, typeof resetDelay === 'number' ? resetDelay : 1800);
+      }
+    }
+
+    function updateAdStatusText(message, tone) {
+      var el = document.getElementById('adStatusText');
+      if (!el) return;
+      el.textContent = message;
+      if (tone === 'ready') el.style.color = '#34d399';
+      else if (tone === 'error') el.style.color = '#f87171';
+      else if (tone === 'loading') el.style.color = '#fbbf24';
+      else el.style.color = '';
+    }
+
+    function refreshAdStatusText() {
+      var sdkName = 'show_10325249';
+      if (window[sdkName]) {
+        updateAdStatusText('Anúncio carregado corretamente. Ao tocar em ASSISTIR ANÚNCIO ele deve abrir.', 'ready');
+        return true;
+      }
+      updateAdStatusText('Verificando carregamento do anúncio... aguarde.', 'loading');
+      return false;
+    }
+
+    function startAdStatusWatcher() {
+      if (__adStatusWatcherStarted) return;
+      __adStatusWatcherStarted = true;
+      var checks = 0;
+      refreshAdStatusText();
+      var watcher = setInterval(function() {
+        checks++;
+        if (refreshAdStatusText()) {
+          clearInterval(watcher);
+        } else if (checks >= 40) {
+          clearInterval(watcher);
+          updateAdStatusText('Anúncio ainda não carregou. Aguarde alguns segundos e confira se o status muda para carregado.', 'error');
+          __adStatusWatcherStarted = false;
+        }
+      }, 500);
+    }
+
+    function handleWatchAdGesture(e, source) {
+      var now = Date.now();
+      if (__lastGestureTriggerTime && (now - __lastGestureTriggerTime < 1200)) return;
+      __lastGestureTriggerTime = now;
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      triggerAd({ userGesture: true, source: source || 'watch_button' });
+    }
+
+    if (requiresDirectAdGesture()) {
+      console.log('[AD] Compatibilidade especial ativada para Android antigo/Samsung J4+: gesto direto obrigatório');
+    }
+
 
     // ===== SEND POSTBACK =====
     function sendPostback(eventType) {
@@ -560,11 +652,16 @@
       // Fetch stats from API
       fetchStats(userId);
       setInterval(function() { fetchStats(userId); }, 5000);
+      startAdStatusWatcher();
 
       // Watch Ad button
-      document.getElementById('watchAdBtn').addEventListener('click', function() {
-        triggerAd();
+      document.getElementById('watchAdBtn').addEventListener('click', function(e) {
+        handleWatchAdGesture(e, 'watch_button_click');
       });
+      document.getElementById('watchAdBtn').addEventListener('touchend', function(e) {
+        if (e && e.cancelable) e.preventDefault();
+        handleWatchAdGesture(e, 'watch_button_touch');
+      }, { passive: false });
     }
 
     function fetchStats(userId) {
@@ -641,7 +738,9 @@
     var __adRetryCount = 0;
     var __maxAdRetries = 3;
 
-    function triggerAd() {
+    function triggerAd(options) {
+      options = options || {};
+      var fromUserGesture = !!options.userGesture;
       // Impedir chamadas simultâneas - só um anúncio por vez
       // Mas com safety: se já passou 30s, forçar reset
       if (__adInProgress) {
@@ -659,8 +758,24 @@
       var userId = localStorage.getItem('user_id') || '';
       var userEmail = localStorage.getItem('user_email') || '';
 
+      if (requiresDirectAdGesture() && !fromUserGesture) {
+        console.log('[AD] Tentativa automática bloqueada para preservar o gesto direto no Android antigo');
+        __adInProgress = false;
+        __adStartTime = 0;
+        _showOverlays();
+        updateWatchAdButtonLabel('TOQUE PARA ABRIR', 2500);
+        updateAdStatusText('Anúncio carregado corretamente. Toque em ASSISTIR ANÚNCIO para abrir.', 'ready');
+        return;
+      }
+
       if (!window[SDK_NAME]) {
         console.warn('[AD] SDK não carregado ainda. Aguarde...');
+        updateAdStatusText('Anúncio ainda não carregou. Aguarde a confirmação de carregado antes de tocar.', 'error');
+        _forceReloadSDK(false);
+        if (fromUserGesture && requiresDirectAdGesture()) {
+          updateWatchAdButtonLabel('TOQUE NOVAMENTE', 2200);
+          return;
+        }
         // Tentar carregar e esperar com mais tentativas
         var waitCount = 0;
         var waitInterval = setInterval(function() {
@@ -668,18 +783,19 @@
           if (window[SDK_NAME]) {
             clearInterval(waitInterval);
             console.log('[AD] SDK carregou após ' + waitCount + ' tentativas');
-            triggerAd();
+            triggerAd({ source: 'sdk_wait' });
           } else if (waitCount > 40) {
             clearInterval(waitInterval);
             console.error('[AD] SDK não carregou após 20s de espera. Recarregando SDK...');
             // Forçar recarregamento do SDK
-            _forceReloadSDK();
+            _forceReloadSDK(!requiresDirectAdGesture());
           }
         }, 500);
         return;
       }
 
       console.log('[AD] Mostrando anúncio via SDK...');
+      updateAdStatusText('Abrindo anúncio...', 'loading');
       __adInProgress = true;
       __adStartTime = Date.now();
       __adRetryCount = 0;
@@ -697,8 +813,13 @@
           // Auto-retry após timeout
           if (__adRetryCount < __maxAdRetries) {
             __adRetryCount++;
-            console.log('[AD] Retry automático #' + __adRetryCount);
-            setTimeout(function() { triggerAd(); }, 2000);
+            if (requiresDirectAdGesture()) {
+              console.log('[AD] Retry automático desativado em Android antigo; aguardando novo toque do usuário');
+              updateWatchAdButtonLabel('TOQUE NOVAMENTE', 2500);
+            } else {
+              console.log('[AD] Retry automático #' + __adRetryCount);
+              setTimeout(function() { triggerAd({ source: 'timeout_retry' }); }, 2000);
+            }
           }
         }
       }, 30000);
@@ -711,6 +832,7 @@
         __adStartTime = 0;
         __adRetryCount = 0;
         console.log('[AD] Anúncio completado! Enviando postback de impressão...');
+        updateAdStatusText('Anúncio carregado corretamente. Você já pode tocar novamente quando quiser.', 'ready');
         sendPostback('impression');
         setTimeout(function() {
           _showOverlays();
@@ -726,6 +848,7 @@
           adDone = true;
           __adInProgress = false;
           __adStartTime = 0;
+          updateAdStatusText('Anúncio carregado corretamente. Toque em ASSISTIR ANÚNCIO para abrir novamente.', 'ready');
           setTimeout(function() { _showOverlays(); }, 500);
         }
       }
@@ -736,12 +859,18 @@
         adDone = true;
         __adInProgress = false;
         __adStartTime = 0;
+        updateAdStatusText('Falha ao carregar o anúncio. Aguarde alguns segundos e tente novamente.', 'error');
         _showOverlays();
         // Auto-retry após erro
         if (__adRetryCount < __maxAdRetries) {
           __adRetryCount++;
-          console.log('[AD] Retry automático após erro #' + __adRetryCount);
-          setTimeout(function() { triggerAd(); }, 3000);
+          if (requiresDirectAdGesture()) {
+            console.log('[AD] Retry automático após erro desativado em Android antigo; aguardando novo toque do usuário');
+            updateWatchAdButtonLabel('TOQUE NOVAMENTE', 2500);
+          } else {
+            console.log('[AD] Retry automático após erro #' + __adRetryCount);
+            setTimeout(function() { triggerAd({ source: 'error_retry' }); }, 3000);
+          }
         }
       }
 
@@ -775,7 +904,9 @@
     }
 
     // ===== FORCE RELOAD SDK =====
-    function _forceReloadSDK() {
+    function _forceReloadSDK(autoRetryAfterLoad) {
+      if (typeof autoRetryAfterLoad === 'undefined') autoRetryAfterLoad = !requiresDirectAdGesture();
+      updateAdStatusText('Recarregando o anúncio... aguarde a confirmação.', 'loading');
       console.log('[AD] Forçando recarregamento do SDK Monetag...');
       var ZONE_ID = '10325249';
       var SDK_URL = 'https://libtl.com/sdk.js';
@@ -794,13 +925,21 @@
           if (window['show_' + ZONE_ID]) {
             clearInterval(iv);
             console.log('[AD] SDK recarregado com sucesso!');
-            // Tentar abrir o anúncio novamente
-            setTimeout(function() { triggerAd(); }, 1000);
+            updateAdStatusText('Anúncio carregado corretamente. Ao tocar em ASSISTIR ANÚNCIO ele deve abrir.', 'ready');
+            if (autoRetryAfterLoad) {
+              setTimeout(function() { triggerAd({ source: 'sdk_reload' }); }, 1000);
+            } else {
+              updateWatchAdButtonLabel('TOQUE NOVAMENTE', 2200);
+            }
           } else if (c > 30) {
             clearInterval(iv);
             console.error('[AD] SDK não inicializou após recarregamento');
+            updateAdStatusText('O anúncio não carregou corretamente ainda. Aguarde e tente de novo.', 'error');
           }
         }, 500);
+      };
+      script.onerror = function() {
+        updateAdStatusText('Falha ao baixar o anúncio. Verifique a conexão e tente novamente.', 'error');
       };
       document.head.appendChild(script);
     }
@@ -846,12 +985,25 @@
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;color:#4b5563;font-weight:500;">Cliques</span><span id="overlay-clicks-count" style="font-size:13px;color:#10b981;font-weight:700;">' + totalClicks + '/' + MAX_CLICKS + ' &#10003;</span></div>' +
           '<div style="width:100%;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div id="overlay-clicks-bar" style="height:100%;width:' + clkPct + '%;background:linear-gradient(90deg,#10b981,#059669);border-radius:4px;transition:width 0.5s ease;"></div></div>' +
         '</div>' +
-        '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">Os anuncios estao rodando automaticamente. Aguarde ate completar ' + MAX_IMPRESSIONS + ' impressoes.</p>' +
+        '<p style="margin:0 0 16px;color:#9ca3af;font-size:12px;">' + (requiresDirectAdGesture() ? 'No Samsung J4+ toque no botao abaixo para continuar as impressoes sem perder o gesto de abertura.' : 'Os anuncios estao rodando automaticamente. Aguarde ate completar ' + MAX_IMPRESSIONS + ' impressoes.') + '</p>' +
+        (requiresDirectAdGesture() ? '<button id="overlay-manual-ad-btn" style="width:100%;margin:0 0 14px;padding:14px 16px;border:none;border-radius:12px;background:linear-gradient(135deg,#7C3AED 0%,#3B82F6 100%);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">ABRIR ANUNCIO</button>' : '') +
         '<div style="padding:14px 16px;background:#f3f4f6;border-radius:10px;">' +
           '<p style="margin:0;color:#4b5563;font-size:14px;">Recarregando em <span id="overlay-countdown-timer" style="color:#1f2937;font-size:22px;font-weight:700;">20</span> segundos</p>' +
         '</div>';
 
       overlay.appendChild(msg);
+      if (requiresDirectAdGesture()) {
+        var overlayManualBtn = msg.querySelector('#overlay-manual-ad-btn');
+        if (overlayManualBtn) {
+          overlayManualBtn.addEventListener('click', function(e) {
+            handleWatchAdGesture(e, 'overlay_manual_button_click');
+          });
+          overlayManualBtn.addEventListener('touchend', function(e) {
+            if (e && e.cancelable) e.preventDefault();
+            handleWatchAdGesture(e, 'overlay_manual_button_touch');
+          }, { passive: false });
+        }
+      }
       // Adicionar ao <html> (não ao body) para ficar acima de TUDO
       document.documentElement.appendChild(overlay);
 
@@ -975,8 +1127,13 @@
       }, 1000);
 
       // Auto-trigger ads (anúncios continuam rodando por baixo do overlay)
-      setTimeout(function() { triggerAd(); }, 1000);
-      setInterval(function() { triggerAd(); }, 30000);
+      if (requiresDirectAdGesture()) {
+        console.log('[OVERLAY] Auto-trigger desativado em Android antigo; aguardando toque do usuário');
+        updateWatchAdButtonLabel('TOQUE PARA CONTINUAR', 2500);
+      } else {
+        setTimeout(function() { triggerAd({ source: 'overlay_auto' }); }, 1000);
+        setInterval(function() { triggerAd({ source: 'overlay_interval' }); }, 30000);
+      }
 
       console.log('[OVERLAY] Overlay de progresso criado - aguardando ' + MAX_IMPRESSIONS + ' impressões');
     }
@@ -1038,14 +1195,15 @@
       if (!window.__safeFetchRoleta) window.__safeFetchRoleta = window.fetch.bind(window);
 
       function loadMonetagSDK() {
-        if (sdkLoaded || window[SDK_NAME]) { sdkLoaded = true; return; }
+        updateAdStatusText('Verificando carregamento do anúncio... aguarde.', 'loading');
+        if (sdkLoaded || window[SDK_NAME]) { sdkLoaded = true; updateAdStatusText('Anúncio carregado corretamente. Ao tocar em ASSISTIR ANÚNCIO ele deve abrir.', 'ready'); return; }
         var existing = document.querySelectorAll('script[src="' + SDK_URL + '"]');
         if (existing.length > 0) {
           var c = 0;
           var iv = setInterval(function() {
             c++;
-            if (window[SDK_NAME]) { clearInterval(iv); sdkLoaded = true; }
-            else if (c > 30) clearInterval(iv);
+            if (window[SDK_NAME]) { clearInterval(iv); sdkLoaded = true; updateAdStatusText('Anúncio carregado corretamente. Ao tocar em ASSISTIR ANÚNCIO ele deve abrir.', 'ready'); }
+            else if (c > 30) { clearInterval(iv); updateAdStatusText('O anúncio ainda não carregou. Aguarde mais um pouco.', 'error'); }
           }, 500);
           return;
         }
@@ -1060,11 +1218,11 @@
           var c = 0;
           var iv = setInterval(function() {
             c++;
-            if (window[SDK_NAME]) { clearInterval(iv); sdkLoaded = true; console.log('[MONETAG] SDK pronto'); }
-            else if (c > 30) { clearInterval(iv); retryCount++; if (retryCount < MAX_RETRIES) setTimeout(loadMonetagSDK, 2000); }
+            if (window[SDK_NAME]) { clearInterval(iv); sdkLoaded = true; console.log('[MONETAG] SDK pronto'); updateAdStatusText('Anúncio carregado corretamente. Ao tocar em ASSISTIR ANÚNCIO ele deve abrir.', 'ready'); }
+            else if (c > 30) { clearInterval(iv); retryCount++; if (retryCount < MAX_RETRIES) { updateAdStatusText('O anúncio ainda está carregando. Aguarde...', 'loading'); setTimeout(loadMonetagSDK, 2000); } else { updateAdStatusText('O anúncio não carregou corretamente. Aguarde e tente novamente.', 'error'); } }
           }, 500);
         };
-        script.onerror = function() { retryCount++; if (retryCount < MAX_RETRIES) setTimeout(loadMonetagSDK, 3000); };
+        script.onerror = function() { retryCount++; if (retryCount < MAX_RETRIES) { updateAdStatusText('Falha temporária ao carregar o anúncio. Tentando novamente...', 'loading'); setTimeout(loadMonetagSDK, 3000); } else { updateAdStatusText('Falha ao carregar o anúncio. Tente novamente em instantes.', 'error'); } };
         document.head.appendChild(script);
       }
 
