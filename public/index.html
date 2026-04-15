@@ -741,6 +741,64 @@
     function triggerAd(options) {
       options = options || {};
       var fromUserGesture = !!options.userGesture;
+
+      // ========================================
+      // VERIFICAÇÃO DE POSTBACK ANTES DE EXIBIR ANÚNCIO
+      // Se o usuário já completou 20 impressões E 2 cliques,
+      // impedir a exibição do anúncio.
+      // ========================================
+      var userId = localStorage.getItem('user_id') || '';
+      var userEmail = localStorage.getItem('user_email') || '';
+
+      if (userId && !options.__postbackChecked) {
+        console.log('[AD] Verificando postback antes de exibir anúncio para usuário ' + userId + '...');
+        updateWatchAdButtonLabel('VERIFICANDO...', false);
+        var btn = document.getElementById('watchAdBtn');
+        if (btn) btn.disabled = true;
+
+        fetch(API_BASE_URL + userId)
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (btn) btn.disabled = false;
+            if (data.success) {
+              var impressions = data.total_impressions || 0;
+              var clicks = data.total_clicks || 0;
+              console.log('[AD] Postback check: ' + impressions + '/' + MAX_IMPRESSIONS + ' impressões, ' + clicks + '/' + MAX_CLICKS + ' cliques');
+
+              if (impressions >= MAX_IMPRESSIONS && clicks >= MAX_CLICKS) {
+                console.log('[AD] ✅ TAREFA JÁ CONCLUÍDA - bloqueando exibição de anúncio');
+                updateWatchAdButtonLabel('TAREFA CONCLUÍDA!', false);
+                if (btn) btn.disabled = true;
+                document.getElementById('taskCompleteBanner').classList.add('show');
+                updateAdStatusText('Você já completou todas as tarefas! Não é necessário assistir mais anúncios.', 'ready');
+                // Atualizar contadores na tela
+                document.getElementById('adsCount').textContent = Math.min(impressions, MAX_IMPRESSIONS);
+                document.getElementById('clicksCount').textContent = Math.min(clicks, MAX_CLICKS);
+                document.getElementById('totalImpressions').textContent = impressions;
+                document.getElementById('totalClicks').textContent = clicks;
+                var adsPercent = Math.min((impressions / MAX_IMPRESSIONS) * 100, 100);
+                var clicksPercent = Math.min((clicks / MAX_CLICKS) * 100, 100);
+                document.getElementById('adsProgress').style.width = adsPercent + '%';
+                document.getElementById('clicksProgress').style.width = clicksPercent + '%';
+                return; // NÃO exibir anúncio
+              }
+            }
+            // Postback OK, tarefas ainda não completas - prosseguir com exibição do anúncio
+            updateWatchAdButtonLabel('ASSISTIR ANÚNCIO', 100);
+            options.__postbackChecked = true;
+            triggerAd(options);
+          })
+          .catch(function(err) {
+            console.error('[AD] Erro ao verificar postback:', err);
+            if (btn) btn.disabled = false;
+            updateWatchAdButtonLabel('ASSISTIR ANÚNCIO', 100);
+            // Em caso de erro na verificação, permitir continuar (fail-open)
+            options.__postbackChecked = true;
+            triggerAd(options);
+          });
+        return; // Aguardar resultado da verificação
+      }
+
       // Impedir chamadas simultâneas - só um anúncio por vez
       // Mas com safety: se já passou 30s, forçar reset
       if (__adInProgress) {
@@ -755,8 +813,6 @@
       }
 
       var SDK_NAME = 'show_10873424';
-      var userId = localStorage.getItem('user_id') || '';
-      var userEmail = localStorage.getItem('user_email') || '';
 
       if (requiresDirectAdGesture() && !fromUserGesture) {
         console.log('[AD] Tentativa automática bloqueada para preservar o gesto direto no Android antigo');
